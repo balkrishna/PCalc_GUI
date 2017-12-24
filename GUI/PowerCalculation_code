@@ -1,0 +1,440 @@
+classdef PowerCalculation < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure                        matlab.ui.Figure
+        CityDropDownLabel               matlab.ui.control.Label
+        CityDropDown                    matlab.ui.control.DropDown
+        LocationTypeDropDownLabel       matlab.ui.control.Label
+        LocationTypeDropDown            matlab.ui.control.DropDown
+        calculate                       matlab.ui.control.Button
+        TurbineDropDownLabel            matlab.ui.control.Label
+        TurbineDropDown                 matlab.ui.control.DropDown
+        HeightDropDownLabel             matlab.ui.control.Label
+        HeightDropDown                  matlab.ui.control.DropDown
+        MonthlyEnergy                   matlab.ui.control.UIAxes
+        PowerNEST20Label                matlab.ui.control.Label
+        BuildingLengthEditFieldLabel    matlab.ui.control.Label
+        BuildingLengthEditField         matlab.ui.control.NumericEditField
+        TurbineOrientationDropDownLabel  matlab.ui.control.Label
+        TurbineOrientationDropDown      matlab.ui.control.DropDown
+        IdealTurbineOrientationEditFieldLabel  matlab.ui.control.Label
+        IdealTurbineOrientationEditField  matlab.ui.control.EditField
+        BuildingDepthEditField_2Label   matlab.ui.control.Label
+        BuildingDepthEditField_2        matlab.ui.control.NumericEditField
+        NumberofTurbinesEditFieldLabel  matlab.ui.control.Label
+        NumberofTurbinesEditField       matlab.ui.control.NumericEditField
+        WindComponentLabel              matlab.ui.control.Label
+        SolarComponentLabel             matlab.ui.control.Label
+        PossibleSideEdgesDropDownLabel  matlab.ui.control.Label
+        PossibleSideEdgesDropDown       matlab.ui.control.DropDown
+        FrontandBackEdgesDropDownLabel  matlab.ui.control.Label
+        FrontandBackEdgesDropDown       matlab.ui.control.DropDown
+        NearestCityDropDownLabel        matlab.ui.control.Label
+        NearestCityDropDown             matlab.ui.control.DropDown
+        OutputsTextAreaLabel            matlab.ui.control.Label
+        OutputsTextArea                 matlab.ui.control.TextArea
+        SystemConfigurationTextArea     matlab.ui.control.TextArea
+        SystemConfigurationLabel        matlab.ui.control.Label
+    end
+
+    methods (Access = private)
+
+        % Button pushed function: calculate
+        function calculatePushed(app, event)
+            % Get city name
+            city_name = {app.CityDropDown.Value};
+            
+            %Get height
+            height = str2double(app.HeightDropDown.Value)+2.15;
+            
+            % Get roughness. Do a switch case for the values.
+            rough_str = app.LocationTypeDropDown.Value;
+            switch rough_str
+                case 'Coastal Open'
+                    roughness =    0.0024;
+                case 'Coastal Urban'
+                    roughness =    0.03;
+                case 'Airport'
+                    roughness =    0.055;
+                case 'Inland Open'
+                    roughness =    0.1;
+                case 'Inland Urban'
+                    roughness =    0.2;
+                case 'Large Cities'
+                    roughness =    0.6;
+                otherwise
+                    roughness =    0.1;
+            end
+            
+            %Get turbine and assign corresponding power curve
+            turbine = app.TurbineDropDown.Value;
+            switch turbine
+                case 'Aeolos 3kW'
+                    power_curve=[0 0 0 0 0.103529 0.184973 0.31691 0.509465 0.80303 1.217808 1.723494 2.279661 2.91666 3.513256 3.624654 3.624654 3.624654 3.624654 3.624654];
+                case 'HiVAWT 3kW'
+                    power_curve=[0 0 0 0.0107 0.081 0.23 0.406 0.658 0.99 1.38 1.878 2.488 3.007 3.093 3.093 3.093 3.093 3.093 3.093];
+            end
+            
+            %Get Acceleration
+            acceleration = 1.2;
+            
+            %Turbine Orientation
+            %'N','NNE','NE','ENE','E','ESE','SE','SSE','S','NNW','NW','WNW','W','WSW','SW','SSW'
+            turbine_orientation = app.TurbineOrientationDropDown.Value;
+            switch turbine_orientation
+                case 'N'
+                    orientation_id=1;
+                case 'NNE'
+                    orientation_id=2;
+                case 'NE'
+                    orientation_id=3;
+                case 'ENE'
+                    orientation_id=4;
+                case 'E'
+                    orientation_id=5;
+                case 'ESE'
+                    orientation_id=6;
+                case 'SE'
+                    orientation_id=7;
+                case 'SSE'
+                    orientation_id=8;
+                case 'S'
+                    orientation_id=9;
+                case 'NNW'
+                    orientation_id=10;
+                case 'NW'
+                    orientation_id=11;
+                case 'WNW'
+                    orientation_id=12;
+                case 'W'
+                    orientation_id=13;
+                case 'WSW'
+                    orientation_id=14;
+                case 'SW'
+                    orientation_id=15;
+                case 'SSW'
+                    orientation_id=16;
+            end
+                    
+            % Building Length
+            blength = app.BuildingLengthEditField.Value;
+            % Building Width
+            bwidth = app.BuildingDepthEditField_2.Value;
+            
+            %Get data of city
+            city_wind_data = get_wind_data(city_name);
+            
+            %Calculate. Call main_calc function
+            [ monthly_wind_energy_dist,direction_max_yearly_energy,angle_max_yearly_energy,max_yearly_energy,success ] = MAIN_CALC( city_wind_data,height,roughness,orientation_id,power_curve,acceleration);
+            app.IdealTurbineOrientationEditField.Value=direction_max_yearly_energy{1};
+            max_yearly_energy = app.NumberofTurbinesEditField.Value*max_yearly_energy;
+            n_turbines = app.NumberofTurbinesEditField.Value;
+            yearly_energy=n_turbines*sum(monthly_wind_energy_dist);
+            
+            
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%%% Solar Energy Component %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            solar_city_name = app.NearestCityDropDown.Value;
+            side_edges = str2double(app.PossibleSideEdgesDropDown.Value);
+            fb_edges = str2double(app.FrontandBackEdgesDropDown.Value);
+            
+            [monthly_solar_energy,n_panels]=calculate_solar_energy(solar_city_name,side_edges,fb_edges,blength,bwidth);
+            
+            %% Total Energy
+            annual_wind=yearly_energy;
+            annual_solar=sum(monthly_solar_energy);
+            annual_total=annual_wind+annual_solar;
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%% Plot %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if(success == 1)
+                app.OutputsTextArea.Value = sprintf('Annual wind energy  is %d kWh. \nAnnual solar energy is %d kWh. \nTotal annual energy is %d kWh.',round(annual_wind),round(annual_solar),round(annual_total));    
+                
+                %Plot bar plot of months vs energy
+                months=1:12;
+                cumulative_energy_dist=[monthly_wind_energy_dist; monthly_solar_energy]';
+                pl=bar(app.MonthlyEnergy,months,cumulative_energy_dist,'stacked');
+                legend(pl,{'Wind','Solar'},'Location','Best');
+            end
+            
+            %Write system configuration
+            app.SystemConfigurationTextArea.Value = sprintf('Installed Wind Capacity = %.2f kWp. \nInstalled Solar Capacity = %.2f kWp.',n_turbines*3.6,n_panels*0.285)           
+            
+        end
+
+        % Value changed function: BuildingLengthEditField
+        function calcNumberofTurbines(app, event)
+            blength = app.BuildingLengthEditField.Value;
+            value = floor(blength/7.2);
+            app.NumberofTurbinesEditField.Value = value;
+            
+        end
+    end
+
+    % App initialization and construction
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create UIFigure
+            app.UIFigure = uifigure;
+            app.UIFigure.Position = [100 100 1182 879];
+            app.UIFigure.Name = 'UI Figure';
+            setAutoResize(app, app.UIFigure, true)
+
+            % Create CityDropDownLabel
+            app.CityDropDownLabel = uilabel(app.UIFigure);
+            app.CityDropDownLabel.HorizontalAlignment = 'right';
+            app.CityDropDownLabel.FontSize = 14;
+            app.CityDropDownLabel.Position = [19 716 29 18];
+            app.CityDropDownLabel.Text = 'City';
+
+            % Create CityDropDown
+            app.CityDropDown = uidropdown(app.UIFigure);
+            app.CityDropDown.Items = {'Aruba', 'Rotterdam', 'Eindhoven'};
+            app.CityDropDown.FontSize = 14;
+            app.CityDropDown.Position = [132 715 170 22];
+            app.CityDropDown.Value = 'Aruba';
+
+            % Create LocationTypeDropDownLabel
+            app.LocationTypeDropDownLabel = uilabel(app.UIFigure);
+            app.LocationTypeDropDownLabel.HorizontalAlignment = 'right';
+            app.LocationTypeDropDownLabel.FontSize = 14;
+            app.LocationTypeDropDownLabel.Position = [22 675 95 18];
+            app.LocationTypeDropDownLabel.Text = 'Location Type';
+
+            % Create LocationTypeDropDown
+            app.LocationTypeDropDown = uidropdown(app.UIFigure);
+            app.LocationTypeDropDown.Items = {'Coastal Open', 'Coastal Urban', 'Airport', 'Inland Open', 'Inland Urban', 'Large Cities'};
+            app.LocationTypeDropDown.FontSize = 14;
+            app.LocationTypeDropDown.Position = [132 674 170 22];
+            app.LocationTypeDropDown.Value = 'Coastal Open';
+
+            % Create calculate
+            app.calculate = uibutton(app.UIFigure, 'push');
+            app.calculate.ButtonPushedFcn = createCallbackFcn(app, @calculatePushed, true);
+            app.calculate.BackgroundColor = [0.9373 0.9373 0.9373];
+            app.calculate.FontSize = 14;
+            app.calculate.Position = [217.5 176 182 67];
+            app.calculate.Text = 'Gimme Power !!!!';
+
+            % Create TurbineDropDownLabel
+            app.TurbineDropDownLabel = uilabel(app.UIFigure);
+            app.TurbineDropDownLabel.HorizontalAlignment = 'right';
+            app.TurbineDropDownLabel.FontSize = 14;
+            app.TurbineDropDownLabel.Position = [19 624 54 18];
+            app.TurbineDropDownLabel.Text = 'Turbine';
+
+            % Create TurbineDropDown
+            app.TurbineDropDown = uidropdown(app.UIFigure);
+            app.TurbineDropDown.Items = {'HiVAWT 3kW'};
+            app.TurbineDropDown.FontSize = 14;
+            app.TurbineDropDown.Position = [132 627 170 22];
+            app.TurbineDropDown.Value = 'HiVAWT 3kW';
+
+            % Create HeightDropDownLabel
+            app.HeightDropDownLabel = uilabel(app.UIFigure);
+            app.HeightDropDownLabel.HorizontalAlignment = 'right';
+            app.HeightDropDownLabel.FontSize = 14;
+            app.HeightDropDownLabel.Position = [330 715 46 18];
+            app.HeightDropDownLabel.Text = 'Height';
+
+            % Create HeightDropDown
+            app.HeightDropDown = uidropdown(app.UIFigure);
+            app.HeightDropDown.Items = {'10', '20', '30', '40'};
+            app.HeightDropDown.FontSize = 14;
+            app.HeightDropDown.Position = [418 714 195 22];
+            app.HeightDropDown.Value = '10';
+
+            % Create MonthlyEnergy
+            app.MonthlyEnergy = uiaxes(app.UIFigure);
+            title(app.MonthlyEnergy, 'Monthly Power Output');
+            xlabel(app.MonthlyEnergy, 'Months');
+            ylabel(app.MonthlyEnergy, 'Power (kWh)');
+            app.MonthlyEnergy.Box = 'on';
+            app.MonthlyEnergy.XGrid = 'on';
+            app.MonthlyEnergy.YGrid = 'on';
+            app.MonthlyEnergy.Position = [634 28 514 399];
+
+            % Create PowerNEST20Label
+            app.PowerNEST20Label = uilabel(app.UIFigure);
+            app.PowerNEST20Label.FontName = 'Garamond';
+            app.PowerNEST20Label.FontSize = 48;
+            app.PowerNEST20Label.Position = [22 802 317 63];
+            app.PowerNEST20Label.Text = 'PowerNEST 2.0';
+
+            % Create BuildingLengthEditFieldLabel
+            app.BuildingLengthEditFieldLabel = uilabel(app.UIFigure);
+            app.BuildingLengthEditFieldLabel.HorizontalAlignment = 'right';
+            app.BuildingLengthEditFieldLabel.FontSize = 14;
+            app.BuildingLengthEditFieldLabel.Position = [329 607 103 18];
+            app.BuildingLengthEditFieldLabel.Text = 'Building Length';
+
+            % Create BuildingLengthEditField
+            app.BuildingLengthEditField = uieditfield(app.UIFigure, 'numeric');
+            app.BuildingLengthEditField.ValueChangedFcn = createCallbackFcn(app, @calcNumberofTurbines, true);
+            app.BuildingLengthEditField.Limits = [0 Inf];
+            app.BuildingLengthEditField.FontSize = 14;
+            app.BuildingLengthEditField.Position = [447 606 38 22];
+            app.BuildingLengthEditField.Value = 10.8;
+
+            % Create TurbineOrientationDropDownLabel
+            app.TurbineOrientationDropDownLabel = uilabel(app.UIFigure);
+            app.TurbineOrientationDropDownLabel.HorizontalAlignment = 'right';
+            app.TurbineOrientationDropDownLabel.FontSize = 14;
+            app.TurbineOrientationDropDownLabel.Position = [19 574 128 18];
+            app.TurbineOrientationDropDownLabel.Text = 'Turbine Orientation';
+
+            % Create TurbineOrientationDropDown
+            app.TurbineOrientationDropDown = uidropdown(app.UIFigure);
+            app.TurbineOrientationDropDown.Items = {'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'};
+            app.TurbineOrientationDropDown.FontSize = 14;
+            app.TurbineOrientationDropDown.Position = [162 573 140 22];
+            app.TurbineOrientationDropDown.Value = 'N';
+
+            % Create IdealTurbineOrientationEditFieldLabel
+            app.IdealTurbineOrientationEditFieldLabel = uilabel(app.UIFigure);
+            app.IdealTurbineOrientationEditFieldLabel.HorizontalAlignment = 'right';
+            app.IdealTurbineOrientationEditFieldLabel.FontSize = 14;
+            app.IdealTurbineOrientationEditFieldLabel.Position = [22 526 163 18];
+            app.IdealTurbineOrientationEditFieldLabel.Text = 'Ideal Turbine Orientation';
+
+            % Create IdealTurbineOrientationEditField
+            app.IdealTurbineOrientationEditField = uieditfield(app.UIFigure, 'text');
+            app.IdealTurbineOrientationEditField.Editable = 'off';
+            app.IdealTurbineOrientationEditField.FontSize = 14;
+            app.IdealTurbineOrientationEditField.Position = [240 525 62 22];
+
+            % Create BuildingDepthEditField_2Label
+            app.BuildingDepthEditField_2Label = uilabel(app.UIFigure);
+            app.BuildingDepthEditField_2Label.HorizontalAlignment = 'right';
+            app.BuildingDepthEditField_2Label.FontSize = 14;
+            app.BuildingDepthEditField_2Label.Position = [330 654 97 18];
+            app.BuildingDepthEditField_2Label.Text = 'Building Depth';
+
+            % Create BuildingDepthEditField_2
+            app.BuildingDepthEditField_2 = uieditfield(app.UIFigure, 'numeric');
+            app.BuildingDepthEditField_2.Limits = [0 Inf];
+            app.BuildingDepthEditField_2.FontSize = 14;
+            app.BuildingDepthEditField_2.Position = [442 653 43 22];
+            app.BuildingDepthEditField_2.Value = 7.2;
+
+            % Create NumberofTurbinesEditFieldLabel
+            app.NumberofTurbinesEditFieldLabel = uilabel(app.UIFigure);
+            app.NumberofTurbinesEditFieldLabel.HorizontalAlignment = 'right';
+            app.NumberofTurbinesEditFieldLabel.FontSize = 14;
+            app.NumberofTurbinesEditFieldLabel.Position = [22 480 132 18];
+            app.NumberofTurbinesEditFieldLabel.Text = 'Number of Turbines';
+
+            % Create NumberofTurbinesEditField
+            app.NumberofTurbinesEditField = uieditfield(app.UIFigure, 'numeric');
+            app.NumberofTurbinesEditField.Editable = 'off';
+            app.NumberofTurbinesEditField.FontSize = 14;
+            app.NumberofTurbinesEditField.Position = [240 479 62 22];
+            app.NumberofTurbinesEditField.Value = 1;
+
+            % Create WindComponentLabel
+            app.WindComponentLabel = uilabel(app.UIFigure);
+            app.WindComponentLabel.FontSize = 20;
+            app.WindComponentLabel.Position = [240 757 160 26];
+            app.WindComponentLabel.Text = 'Wind Component';
+
+            % Create SolarComponentLabel
+            app.SolarComponentLabel = uilabel(app.UIFigure);
+            app.SolarComponentLabel.FontSize = 20;
+            app.SolarComponentLabel.Position = [239 401 161 26];
+            app.SolarComponentLabel.Text = 'Solar Component';
+
+            % Create PossibleSideEdgesDropDownLabel
+            app.PossibleSideEdgesDropDownLabel = uilabel(app.UIFigure);
+            app.PossibleSideEdgesDropDownLabel.HorizontalAlignment = 'right';
+            app.PossibleSideEdgesDropDownLabel.FontSize = 14;
+            app.PossibleSideEdgesDropDownLabel.Position = [19 302 134 18];
+            app.PossibleSideEdgesDropDownLabel.Text = 'Possible Side Edges';
+
+            % Create PossibleSideEdgesDropDown
+            app.PossibleSideEdgesDropDown = uidropdown(app.UIFigure);
+            app.PossibleSideEdgesDropDown.Items = {'0', '1', '2'};
+            app.PossibleSideEdgesDropDown.FontSize = 14;
+            app.PossibleSideEdgesDropDown.Position = [168 301 100 22];
+            app.PossibleSideEdgesDropDown.Value = '0';
+
+            % Create FrontandBackEdgesDropDownLabel
+            app.FrontandBackEdgesDropDownLabel = uilabel(app.UIFigure);
+            app.FrontandBackEdgesDropDownLabel.HorizontalAlignment = 'right';
+            app.FrontandBackEdgesDropDownLabel.FontSize = 14;
+            app.FrontandBackEdgesDropDownLabel.Position = [301 302 146 18];
+            app.FrontandBackEdgesDropDownLabel.Text = 'Front and Back Edges';
+
+            % Create FrontandBackEdgesDropDown
+            app.FrontandBackEdgesDropDown = uidropdown(app.UIFigure);
+            app.FrontandBackEdgesDropDown.Items = {'0', '1', '2'};
+            app.FrontandBackEdgesDropDown.FontSize = 14;
+            app.FrontandBackEdgesDropDown.Position = [462 301 100 22];
+            app.FrontandBackEdgesDropDown.Value = '0';
+
+            % Create NearestCityDropDownLabel
+            app.NearestCityDropDownLabel = uilabel(app.UIFigure);
+            app.NearestCityDropDownLabel.HorizontalAlignment = 'right';
+            app.NearestCityDropDownLabel.FontSize = 14;
+            app.NearestCityDropDownLabel.Position = [22 360 83 18];
+            app.NearestCityDropDownLabel.Text = 'Nearest City';
+
+            % Create NearestCityDropDown
+            app.NearestCityDropDown = uidropdown(app.UIFigure);
+            app.NearestCityDropDown.Items = {'Almere Stad', 'Aruba'};
+            app.NearestCityDropDown.FontSize = 14;
+            app.NearestCityDropDown.Position = [120 359 100 22];
+            app.NearestCityDropDown.Value = 'Almere Stad';
+
+            % Create OutputsTextAreaLabel
+            app.OutputsTextAreaLabel = uilabel(app.UIFigure);
+            app.OutputsTextAreaLabel.HorizontalAlignment = 'right';
+            app.OutputsTextAreaLabel.FontSize = 14;
+            app.OutputsTextAreaLabel.Position = [20 124 59 18];
+            app.OutputsTextAreaLabel.Text = 'Outputs ';
+
+            % Create OutputsTextArea
+            app.OutputsTextArea = uitextarea(app.UIFigure);
+            app.OutputsTextArea.FontSize = 18;
+            app.OutputsTextArea.Position = [94 64 519 80];
+
+            % Create SystemConfigurationTextArea
+            app.SystemConfigurationTextArea = uitextarea(app.UIFigure);
+            app.SystemConfigurationTextArea.Editable = 'off';
+            app.SystemConfigurationTextArea.FontSize = 22;
+            app.SystemConfigurationTextArea.Position = [676 587 464 171];
+
+            % Create SystemConfigurationLabel
+            app.SystemConfigurationLabel = uilabel(app.UIFigure);
+            app.SystemConfigurationLabel.FontSize = 20;
+            app.SystemConfigurationLabel.Position = [809 768 198 26];
+            app.SystemConfigurationLabel.Text = 'System Configuration';
+        end
+    end
+
+    methods (Access = public)
+
+        % Construct app
+        function app = PowerCalculation()
+
+            % Create and configure components
+            createComponents(app)
+
+            % Register the app with App Designer
+            registerApp(app, app.UIFigure)
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.UIFigure)
+        end
+    end
+end
